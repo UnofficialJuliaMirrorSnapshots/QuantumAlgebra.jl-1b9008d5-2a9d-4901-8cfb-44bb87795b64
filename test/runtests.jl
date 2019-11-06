@@ -1,4 +1,5 @@
 using QuantumAlgebra
+using QuantumAlgebra: δ, prodtuples, prodtuple, sumtuple, distribute_indices!
 using Test
 
 @testset "QuantumAlgebra.jl" begin
@@ -33,8 +34,10 @@ using Test
         @test tmp1 == tmp2
         @test tmp1' == tmpc
 
-        @test 5*a() == scal(5)*a()
-        @test a()*5 == a()*scal(5) == 5*a()
+        @test a()*5 == 5*a() == scal(5)*a()
+        @test a()+5 == 5+a() == scal(5)+a()
+        @test 5-a() == scal(5)+scal(-1)*a()
+        @test a()-5 == scal(-5)+a()
 
         @test_throws MethodError σx(:i,"a")
         @test σx(:i,:b) == σx((:i,:b))
@@ -62,6 +65,15 @@ using Test
         @test (a(:m)*a(1))' == adag(:m)*adag(1)
         @test (a(1,2,:k)*a(:m))' == adag(1,2,:k)*adag(:m)
 
+        @test fdag(:a)*f(:b) + f(:b)*fdag(:a) == δ(:a,:b)
+        @test f(:a)*f(:b) + f(:b)*f(:a) == scal(0)
+        @test fdag(:a)*fdag(:b) + fdag(:b)*fdag(:a) == scal(0)
+
+        @test f()' == fdag()
+        @test fdag()' == f()
+        @test (fdag()*f())' == fdag()*f()
+        @test comm(fdag(),f()) == -comm(f(),fdag())
+
         @test scal(1+1im) < scal(2-1im)
         @test scal(1+1im) > scal(1-1im)
         @test a(1) < σx(1)
@@ -70,47 +82,60 @@ using Test
         @test adag(1) < a(1)
         @test a(5) < a(:i)
         @test !(adag(:m) < adag(2))
+        @test fdag() < f()
+        @test adag() < fdag()
+        @test fdag(:i,:j) < fdag(:k)
 
         @test a(1) * (σy(1) * a(1))' == a(1) * (adag(1) * σy(1)) == adag(1)*a(1)*σy(1) + σy(1)
 
+        @test ∑(:j,a(:j))*∑(:i,a(:i)) == ∑(:i,∑(:j,a(:i)*a(:j)))
+
         tmp = OpSumAnalytic(:i,adag(:i)*a(:i))
         @test tmp' == tmp
-        @test_throws ErrorException a(:i)*OpSumAnalytic(:i,a(:i))
+        @test a(:i)*OpSumAnalytic(:i,a(:i)) == OpSumAnalytic(:i_1,a(:i_1)*a(:i))
         @test adag(:n)*tmp == OpSumAnalytic(:i,adag(:n)*adag(:i)*a(:i))
         @test a(:n)   *tmp == OpSumAnalytic(:i,adag(:i)*a(:n)*a(:i)) + a(:n)
-        @test_throws ErrorException param(:g,:i)*OpSumAnalytic(:i,a(:i))
+        @test param(:g,:i)*OpSumAnalytic(:i,a(:i)) == OpSumAnalytic(:i_1,param(:g,:i)*a(:i_1))
+        @test param(:g,:i_1)*a(:i)*OpSumAnalytic(:i,a(:i)) == OpSumAnalytic(:i_2,param(:g,:i_1)*a(:i)*a(:i_2))
         @test param(:g,:n)*OpSumAnalytic(:i,a(:i)) == ∑(:i,param(:g,:n)*a(:i))
 
         @test Pr"gz_i,mu" == param(:gz,'r',(:i,:mu))
         @test Pc"gz_i,mu" == param(:gz,'n',(:i,:mu))
         @test Pc"gz_i,mu"' == param(:gz,'c',(:i,:mu))
 
-        @test QuantumAlgebra.prodtuple(a(5)) == (a(5),)
+        @test prodtuple(a(5)) == (a(5),)
         # tuples come out ordered!
-        @test QuantumAlgebra.prodtuple(a(5)*a(4)) == (a(4),a(5))
-        @test QuantumAlgebra.prodtuple(a(5)*a(4)) != (a(5),a(4))
+        @test prodtuple(a(5)*a(4)) == (a(4),a(5))
+        @test prodtuple(a(5)*a(4)) != (a(5),a(4))
 
-        @test QuantumAlgebra.sumtuple(a(5)) == (a(5),)
+        @test sumtuple(a(5)) == (a(5),)
         # tuples come out ordered!
-        @test QuantumAlgebra.sumtuple(a(5)+a(4)) == (a(4),a(5))
-        @test QuantumAlgebra.sumtuple(a(5)+a(4)) != (a(5),a(4))
+        @test sumtuple(a(5)+a(4)) == (a(4),a(5))
+        @test sumtuple(a(5)+a(4)) != (a(5),a(4))
 
-        @test_throws ErrorException QuantumAlgebra.prodtuples(a(5)+a(4))
+        @test_throws ErrorException prodtuples(a(5)+a(4))
         # tuples come out ordered!
         if QuantumAlgebra.using_σpm
             tmp1 = scal(3)*param(:ω)*param(:g)*ExpVal(σp(:k))*σp(:k)*adag(5)*a(5)
             tmp2 = ( (scal(3),param(:g),param(:ω)), (ExpVal(σp(:k)),), (adag(5),a(5),σp(:k)) )
-            @test QuantumAlgebra.prodtuples(tmp1) == tmp2
+            @test prodtuples(tmp1) == tmp2
         else
             tmp1 = scal(3)*param(:ω)*param(:g)*ExpVal(σz(:k))*σz(:k)*adag(5)*a(5)
             tmp2 = ( (scal(3),param(:g),param(:ω)), (ExpVal(σz(:k)),), (adag(5),a(5),σz(:k)) )
-            @test QuantumAlgebra.prodtuples(tmp1) == tmp2
+            @test prodtuples(tmp1) == tmp2
         end
+
+        @test δ(:i,:k)*a(:k) == a(:i)*δ(:k,:i)
+        @test δ(:i,:k)*a(:k,:i) == a(:i,:i)*δ(:k,:i)
+        @test δ(:i,:k)*δ(:i,:j) == δ(:k,:i)*δ(:j,:k)
+        # k cannot be equal to 1 and 3 at the same time
+        @test δ(1,:k)*δ(:k,3)*σx(:k) == scal(0)
+        @test δ(1,:k)*δ(:k,1)*σx(:k) == δ(1,:k)*σx(1)
 
         @test comm(σx(5),σy(3)) == scal(0)
         @test comm(σx(5),σx(5)) == scal(0)
         @test comm(σx(1),σz(1)) == scal(-2im)*σy(1)
-        @test comm(σx(:mu),σy(:muuu)) == scal(0)
+        @test comm(σx(:mu),σy(:muuu)) == scal(2im)*δ(:mu,:muuu)*σz(:mu)
         @test scal(1//2im)*comm(σx(:m),σy(:m)) == σz(:m)
         @test σx(:a)*σy(:a)*σz(:a) == scal(1im)
 
@@ -168,8 +193,7 @@ using Test
         @test CorrOrExp(a(5)*a(:i)) == Corr(a(5)*a(:i))
 
         H = ∑(:i,param(:ω,'r',:i)*adag(:i)*a(:i))
-        # cannot commute with an operator with the same index as in the sum
-        @test_throws ErrorException comm(a(:i),H)
+        @test comm(a(:i),H) == param(:ω,'r',:i)*a(:i)
         @test comm(a(:n),H) == param(:ω,'r',:n)*a(:n)
         @test comm(H,a(:n)) == -param(:ω,'r',:n)*a(:n)
         @test comm(adag(:n),H) == -param(:ω,'r',:n)*adag(:n)
@@ -183,7 +207,11 @@ using Test
         @test Avac(H) == scal(0)
         @test vacA(H) == scal(0)
         @test vacA(adag(3)*σp(1)*σm(1)) == scal(0)
+        @test vacA(fdag(:n)) == scal(0)
+        @test vacA(f(:n)) == f(:n)
         @test vacA(a(:n)) == a(:n)
+        @test Avac(fdag(:n)) == fdag(:n)
+        @test Avac(f(:n)) == scal(0)
         @test Avac(a(3)*σp(1)*σm(1)) == scal(0)
         @test Avac(σm(1)*σp(1)) == scal(1)
         @test Avac(σp(1)*σm(1)) == scal(0)
@@ -203,10 +231,10 @@ using Test
         @test a(:n)*adag(:n)*a(:n)*adag(:n) == scal(1) + scal(3)*adag(:n)*a(:n) + adag(:n)*adag(:n)*a(:n)*a(:n)
 
         S = scal(1/√(2*6))*adag(:n)*adag(:n)*adag(:n) + scal(1/√2)*adag(:m)
-        for (A,val) in [(scal(1),1),
-                        (adag(:n)*a(:n),1.5),
-                        (adag(:n)*adag(:n)*a(:n)*a(:n),3)]
-            @test vacExpVal(A,S).v ≈ val
+        for (A,val) in [(scal(1),scal(1)),
+                        (adag(:n)*a(:n),scal(1.5) + 0.5 * δ(:n,:m)),
+                        (adag(:n)*adag(:n)*a(:n)*a(:n),scal(3))]
+            @test vacExpVal(A,S) ≈ val
         end
 
         tmp = scal(1+2im)*OpSumAnalytic(:i,a(:i)*adag(:i)*ascorr(adag(:n)*a(:m)))
@@ -225,21 +253,25 @@ using Test
         end
 
         inds = [:a,:b,:c,:d,:e,:f,:g,:h,:i,:j,:k,:l,:m,:n]
-        tmp1 = param(:ω,:y)*a(1)*adag(1)*a(3)*adag(:a)*ExpVal(a(:n))*Corr(adag(:n)*a(:n))
+        tmp1 = param(:ω,:y)*a(1)*adag(1)*a(3)*adag(4)*ExpVal(a(5))*Corr(adag(5)*a(9))
         tmp2 = param(:ω,:a)*ExpVal(a(:b))*Corr(adag(:c)*a(:d))*adag(:e)*a(:f) + param(:ω,:g)*ExpVal(a(:h))*Corr(adag(:i)*a(:j))*adag(:k)*adag(:l)*a(:m)*a(:n)
-        @test QuantumAlgebra.distribute_indices!(copy(inds),tmp1) == tmp2
+        @test distribute_indices!(copy(inds),tmp1) == tmp2
         if QuantumAlgebra.using_σpm
             tmp1 = a(1,:n)*adag()*σm(1,:n)*σp()
-            @test QuantumAlgebra.distribute_indices!(copy(inds),tmp1) == adag()*a(:a,:b)*σp()*σm(:c,:d)
+            @test distribute_indices!(copy(inds),tmp1) == adag()*a(:a,:b)*σp()*σm(:c,:d)
         else
             tmp1 = a(1,:n)*adag()*σz(1,:n)*σy()
-            @test QuantumAlgebra.distribute_indices!(copy(inds),tmp1) == adag()*a(:a,:b)*σy()*σz(:c,:d)
+            @test distribute_indices!(copy(inds),tmp1) == adag()*a(:a,:b)*σy()*σz(:c,:d)
         end
 
-        @test_throws MethodError QuantumAlgebra.distribute_indices!(copy(inds),OpSumAnalytic(:i,a(:i)))
-        @test_throws ArgumentError QuantumAlgebra.distribute_indices!([:a,:b],tmp1)
+        @test_throws MethodError distribute_indices!(copy(inds),OpSumAnalytic(:i,a(:i)))
+        @test_throws ArgumentError distribute_indices!([:a,:b],tmp1)
 
-        @test string(OpSumAnalytic(:i,a(:i)) * adag(:n)) == "1 + Σ_i a†(n) a(i)"
+        @test QuantumAlgebra.exchange_inds(adag(:j)*a(:k),:k,:j) == adag(:k)*a(:j)
+        @test QuantumAlgebra.extindices(∑(:i,adag(:i)*a(:k))) == [:k]
+        @test QuantumAlgebra.symmetric_index_nums(adag(:i)*adag(:j)*a(:k)*a(:l)) == [2,2]
+
+        @test string(OpSumAnalytic(:i,a(:i)) * adag(:n)) == "1 + ∑_i a†(n) a(i)"
         if QuantumAlgebra.using_σpm
             @test string(a(5)*adag(5)*σp(3)*ascorr(adag(5,:i)*a(5))) == "⟨a†(5i)⟩ ⟨a(5)⟩ σ+(3) + ⟨a†(5i) a(5)⟩c σ+(3) + ⟨a†(5i)⟩ ⟨a(5)⟩ a†(5) a(5) σ+(3) + ⟨a†(5i) a(5)⟩c a†(5) a(5) σ+(3)"
         else
